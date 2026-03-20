@@ -1,0 +1,307 @@
+version: "3.9"
+
+x-logging: &default-logging
+  driver: fluentd
+  options:
+    fluentd-address: localhost:24224
+    fluentd-async: "true"
+    tag: "{{.Name}}"
+
+networks:
+  service-net:
+    driver: bridge
+  pnog-net:
+    driver: bridge
+  shared-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redis-data:
+  kafka-data:
+  pnog-graph-data:
+
+services:
+
+  # ── INFRASTRUCTURE ────────────────────────────────────────────
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    networks: [service-net, shared-net]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    networks: [service-net, shared-net, pnog-net]
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    networks: [service-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: pnog
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-init
+    networks: [shared-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic net.requests --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic app.events --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic pod.logs --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic db.queries --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic cache.events --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic git.releases --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic frontend.errors --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic metrics.resources --partitions 1 --replication-factor 1
+      echo 'All topics created'
+      "
+    restart: on-failure
+
+  # ── DATA ─────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    networks: [service-net]
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./service/backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    networks: [service-net]
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --notify-keyspace-events KEA
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── APPLICATION ───────────────────────────────────────────────
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    networks: [service-net]
+    ports:
+      - "80:80"
+    volumes:
+      - ./service/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - fastapi
+    logging: *default-logging
+
+  fastapi:
+    build:
+      context: ./service/backend
+      dockerfile: Dockerfile
+    container_name: fastapi
+    networks: [service-net]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      KAFKA_BROKER: ${KAFKA_BROKER}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./service/backend:/app
+      - /tmp/uploads:/app/uploads
+    logging: *default-logging
+
+  celery:
+    build:
+      context: ./service/backend
+      dockerfile: Dockerfile
+    container_name: celery
+    networks: [service-net]
+    command: celery -A app.tasks worker --loglevel=info
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+    depends_on:
+      - fastapi
+      - redis
+    volumes:
+      - ./service/backend:/app
+      - /tmp/uploads:/app/uploads
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: ./service/frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    networks: [service-net]
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost/api
+    depends_on:
+      - fastapi
+    logging: *default-logging
+
+  # ── OBSERVABILITY ─────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    networks: [service-net]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    networks: [service-net]
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+
+  # ── LOG SHIPPING ──────────────────────────────────────────────
+
+  fluentd:
+    build:
+      context: ./infra/fluentd
+      dockerfile: Dockerfile
+    container_name: fluentd
+    networks: [service-net, shared-net]
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    volumes:
+      - ./infra/fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ── GIT WEBHOOK ───────────────────────────────────────────────
+
+  git-webhook:
+    build:
+      context: ./service/backend
+      dockerfile: Dockerfile
+    container_name: git-webhook
+    networks: [service-net, shared-net]
+    command: uvicorn app.webhook:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    environment:
+      KAFKA_BROKER: ${KAFKA_BROKER}
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ── PNOG MONITOR ─────────────────────────────────────────────
+
+  pnog-consumer:
+    build:
+      context: ./pnog
+      dockerfile: Dockerfile
+    container_name: pnog-consumer
+    networks: [pnog-net, shared-net]
+    command: python -m consumer.main
+    environment:
+      KAFKA_BROKER: ${KAFKA_BROKER}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - pnog-graph-data:/app/data
+
+  pnog-api:
+    build:
+      context: ./pnog
+      dockerfile: Dockerfile
+    container_name: pnog-api
+    networks: [pnog-net]
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8100 --reload
+    ports:
+      - "${PNOG_API_PORT}:8100"
+    volumes:
+      - pnog-graph-data:/app/data
+
+  pnog-ui:
+    build:
+      context: ./pnog/ui
+      dockerfile: Dockerfile
+    container_name: pnog-ui
+    networks: [pnog-net]
+    ports:
+      - "${PNOG_UI_PORT}:3002"
+    environment:
+      NEXT_PUBLIC_PNOG_API: http://localhost:8100
+    depends_on:
+      - pnog-api

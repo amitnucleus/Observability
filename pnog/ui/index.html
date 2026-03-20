@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PNOG — Live Graph</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/vis-network.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/vis-network.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; }
+
+    header {
+      background: #1b2a4a;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 1px solid #2563eb44;
+    }
+    header h1 { font-size: 18px; color: #fff; }
+    header span { font-size: 12px; color: #93c5fd; }
+
+    .stats {
+      display: flex;
+      gap: 12px;
+      padding: 10px 24px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+    }
+    .stat { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 14px; }
+    .stat .label { font-size: 10px; color: #64748b; text-transform: uppercase; }
+    .stat .value { font-size: 18px; font-weight: bold; color: #38bdf8; }
+
+    .layout { display: flex; height: calc(100vh - 110px); }
+
+    #graph { flex: 1; background: #0f172a; }
+
+    .sidebar {
+      width: 300px;
+      background: #1e293b;
+      border-left: 1px solid #334155;
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .sidebar h2 { font-size: 13px; color: #94a3b8; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    .anomaly-card {
+      background: #0f172a;
+      border: 1px solid #dc2626;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    .anomaly-card:hover { border-color: #ef4444; }
+    .anomaly-card .node-id { font-size: 11px; color: #fca5a5; font-family: monospace; margin-bottom: 4px; }
+    .anomaly-card .meta { font-size: 11px; color: #64748b; display: flex; justify-content: space-between; }
+    .anomaly-card .weight { color: #f87171; font-weight: bold; }
+
+    .rca-panel {
+      margin-top: 16px;
+      border-top: 1px solid #334155;
+      padding-top: 16px;
+    }
+    .rca-item { background: #0f172a; border-radius: 4px; padding: 8px; margin-bottom: 6px; }
+    .rca-item .rank { font-size: 10px; color: #64748b; }
+    .rca-item .node { font-size: 11px; color: #7dd3fc; font-family: monospace; }
+    .rca-item .score { font-size: 11px; color: #34d399; }
+
+    .layer-badge {
+      display: inline-block;
+      font-size: 9px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-weight: bold;
+      margin-left: 4px;
+    }
+
+    .refresh-btn {
+      margin-left: auto;
+      background: #2563eb;
+      border: none;
+      color: white;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .refresh-btn:hover { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>PNOG</h1>
+  <span>Pipeline Node Operation Graph — Live</span>
+  <button class="refresh-btn" onclick="loadGraph()">↻ Refresh</button>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="label">Nodes</div><div class="value" id="stat-nodes">—</div></div>
+  <div class="stat"><div class="label">Edges</div><div class="value" id="stat-edges">—</div></div>
+  <div class="stat"><div class="label">Timeline</div><div class="value" id="stat-timeline">—</div></div>
+  <div class="stat"><div class="label">Anomalies</div><div class="value" id="stat-anomalies" style="color:#f87171">—</div></div>
+</div>
+
+<div class="layout">
+  <div id="graph"></div>
+  <div class="sidebar">
+    <h2>Anomalies</h2>
+    <div id="anomaly-list"><p style="color:#475569;font-size:12px">No anomalies detected</p></div>
+    <div class="rca-panel">
+      <h2>RCA Trace</h2>
+      <div id="rca-list"><p style="color:#475569;font-size:12px">Click an anomaly to trace</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:8100/graphql";
+const LAYER_COLORS = {
+  0: "#2563eb", 1: "#0d9488", 2: "#7c3aed",
+  3: "#059669", 4: "#d97706", 5: "#9333ea",
+  6: "#dc2626", 7: "#ea580c",
+};
+
+let network = null;
+let nodesDS = new vis.DataSet();
+let edgesDS = new vis.DataSet();
+
+async function gql(query) {
+  const res = await fetch(API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+  return res.json();
+}
+
+async function loadGraph() {
+  const data = await gql(`{
+    nodes { id layer layerName eventType severity weight eventCount }
+    edges { source target weight }
+    stats { nodes edges timeline }
+    anomalies { id layer layerName weight severity eventCount }
+  }`);
+
+  if (data.errors) { console.error(data.errors); return; }
+  const { nodes, edges, stats, anomalies } = data.data;
+
+  // Update stats
+  document.getElementById("stat-nodes").textContent    = stats.nodes;
+  document.getElementById("stat-edges").textContent    = stats.edges;
+  document.getElementById("stat-timeline").textContent = stats.timeline;
+  document.getElementById("stat-anomalies").textContent = anomalies.length;
+
+  // Build vis nodes
+  const visNodes = nodes.map(n => ({
+    id:    n.id,
+    label: n.id.split(":").slice(-1)[0],
+    title: `${n.id}\nLayer: ${n.layerName}\nWeight: ${n.weight}\nEvents: ${n.eventCount}`,
+    color: {
+      background: n.weight > 5 ? "#dc2626" : (LAYER_COLORS[n.layer] || "#475569"),
+      border:     n.severity === "ERROR" ? "#fca5a5" : "#1e293b",
+    },
+    size:  8 + Math.min(n.weight * 2, 30),
+    font:  { color: "#e2e8f0", size: 10 },
+  }));
+
+  const visEdges = edges.map((e, i) => ({
+    id:     i,
+    from:   e.source,
+    to:     e.target,
+    value:  e.weight,
+    color:  { color: "#334155", opacity: 0.6 },
+    arrows: "to",
+    width:  Math.min(e.weight * 0.5, 3),
+  }));
+
+  nodesDS.clear(); nodesDS.add(visNodes);
+  edgesDS.clear(); edgesDS.add(visEdges);
+
+  if (!network) initNetwork();
+
+  // Render anomalies
+  const list = document.getElementById("anomaly-list");
+  if (anomalies.length === 0) {
+    list.innerHTML = `<p style="color:#475569;font-size:12px">No anomalies detected</p>`;
+  } else {
+    list.innerHTML = anomalies.map(a => `
+      <div class="anomaly-card" onclick="runRCA('${a.id}')">
+        <div class="node-id">${a.id}</div>
+        <div class="meta">
+          <span>${a.layerName}</span>
+          <span class="weight">W=${a.weight}</span>
+        </div>
+      </div>
+    `).join("");
+  }
+}
+
+function initNetwork() {
+  network = new vis.Network(
+    document.getElementById("graph"),
+    { nodes: nodesDS, edges: edgesDS },
+    {
+      physics: { stabilization: false, barnesHut: { gravitationalConstant: -3000 } },
+      interaction: { hover: true },
+      nodes: { shape: "dot" },
+      edges: { smooth: { type: "continuous" } },
+    }
+  );
+
+  network.on("click", params => {
+    if (params.nodes.length > 0) runRCA(params.nodes[0]);
+  });
+}
+
+async function runRCA(nodeId) {
+  const data = await gql(`{
+    rca(nodeId: "${nodeId}") {
+      faultNode
+      blastRadius
+      candidates { nodeId layerName weight pathWeight depth }
+    }
+  }`);
+
+  if (data.errors) return;
+  const { rca } = data.data;
+
+  // Highlight blast radius
+  if (network) {
+    const highlight = new Set([rca.faultNode, ...rca.blastRadius]);
+    nodesDS.forEach(n => {
+      nodesDS.update({ id: n.id, color: { background: highlight.has(n.id) ? "#ef4444" : "#475569" } });
+    });
+  }
+
+  document.getElementById("rca-list").innerHTML = `
+    <p style="font-size:11px;color:#64748b;margin-bottom:8px">
+      Fault: <span style="color:#fca5a5">${rca.faultNode}</span><br>
+      Blast radius: ${rca.blastRadius.length} nodes
+    </p>
+    ${rca.candidates.map((c, i) => `
+      <div class="rca-item">
+        <div class="rank">#${i+1} · depth ${c.depth} · ${c.layerName}</div>
+        <div class="node">${c.nodeId}</div>
+        <div class="score">W=${c.weight} · path=${c.pathWeight}</div>
+      </div>
+    `).join("")}
+  `;
+}
+
+// Auto-refresh every 5 seconds
+loadGraph();
+setInterval(loadGraph, 5000);
+</script>
+</body>
+</html>
