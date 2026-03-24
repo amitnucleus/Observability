@@ -27,4 +27,4 @@ def route(topic: str, data: dict):
 
     g = get_graph()
     g.ingest(event)
-    log.debug("event_ingested", layer=event.layer_name, node=event.node_id, event=event.event_type)
+    log.debug("event_ingested", layer=event.layer_name, node=event.node_id, evt=event.event_type)
