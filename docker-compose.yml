@@ -150,6 +150,7 @@ services:
       context: ./service/backend
       dockerfile: Dockerfile
     container_name: fastapi
+    command: sh -c "pip install psycopg2-binary==2.9.6 && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     networks: [service-net]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
