@@ -1,0 +1,871 @@
+{
+  "backend/app/__init__.py": {
+    "language": "python",
+    "error": null,
+    "nodes": []
+  },
+  "backend/app/database.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import os",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy.orm import declarative_base, sessionmaker",
+        "line": 3,
+        "kind": "import"
+      },
+      {
+        "type": "variable",
+        "label": "DATABASE_URL = .getenv()",
+        "line": 5,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "DATABASE_URL = .replace()",
+        "line": 6,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "engine = create_async_engine()",
+        "line": 8,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "AsyncSessionLocal = sessionmaker()",
+        "line": 9,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "Base = declarative_base()",
+        "line": 10,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "async def get_db()",
+        "line": 12,
+        "kind": "func",
+        "decorators": []
+      }
+    ]
+  },
+  "backend/app/kafka_client.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import os",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import json",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from datetime import datetime, timezone",
+        "line": 3,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from confluent_kafka import Producer",
+        "line": 4,
+        "kind": "import"
+      },
+      {
+        "type": "variable",
+        "label": "KAFKA_BROKER = .getenv()",
+        "line": 6,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "_producer",
+        "line": 8,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "def get_producer()",
+        "line": 10,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "def publish(topic, payload)",
+        "line": 16,
+        "kind": "func",
+        "decorators": []
+      }
+    ]
+  },
+  "backend/app/main.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import structlog",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from fastapi import FastAPI",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from fastapi.middleware.cors import CORSMiddleware",
+        "line": 3,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from prometheus_fastapi_instrumentator import Instrumentator",
+        "line": 4,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.routers import upload, jobs, health",
+        "line": 6,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.database import engine, Base",
+        "line": 7,
+        "kind": "import"
+      },
+      {
+        "type": "variable",
+        "label": "log = .get_logger()",
+        "line": 9,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "app = FastAPI()",
+        "line": 11,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "async def startup()",
+        "line": 29,
+        "kind": "func",
+        "decorators": [
+          "@app.on_event(\"startup\")"
+        ]
+      }
+    ]
+  },
+  "backend/app/webhook.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import os",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import hashlib",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import hmac",
+        "line": 3,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from fastapi import FastAPI, Request, HTTPException (+1)",
+        "line": 4,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.kafka_client import publish",
+        "line": 5,
+        "kind": "import"
+      },
+      {
+        "type": "variable",
+        "label": "app = FastAPI()",
+        "line": 7,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "WEBHOOK_SECRET = .getenv()",
+        "line": 9,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "def verify_signature(payload, signature)",
+        "line": 11,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "async def github_webhook(request, x_hub_signature_256, x_github_event)",
+        "line": 18,
+        "kind": "func",
+        "decorators": [
+          "@app.post(\"/webhook/github\")"
+        ]
+      },
+      {
+        "type": "function",
+        "label": "async def simulate_release(ref, commit)",
+        "line": 43,
+        "kind": "func",
+        "decorators": [
+          "@app.post(\"/webhook/simulate\")"
+        ]
+      }
+    ]
+  },
+  "backend/app/models/__init__.py": {
+    "language": "python",
+    "error": null,
+    "nodes": []
+  },
+  "backend/app/models/job.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import uuid",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from datetime import datetime",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy import Column, String, DateTime (+2)",
+        "line": 3,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy.dialects.postgresql import UUID",
+        "line": 4,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.database import Base",
+        "line": 5,
+        "kind": "import"
+      },
+      {
+        "type": "class",
+        "label": "class Job(Base)",
+        "line": 7,
+        "kind": "class",
+        "children": [
+          {
+            "type": "field",
+            "label": "__tablename__",
+            "line": 8,
+            "kind": "field"
+          },
+          {
+            "type": "field",
+            "label": "id",
+            "line": 10,
+            "kind": "field"
+          },
+          {
+            "type": "field",
+            "label": "filename",
+            "line": 11,
+            "kind": "field"
+          },
+          {
+            "type": "field",
+            "label": "status",
+            "line": 12,
+            "kind": "field"
+          },
+          {
+            "type": "field",
+            "label": "result",
+            "line": 13,
+            "kind": "field"
+          },
+          {
+            "type": "field",
+            "label": "file_size",
+            "line": 14,
+            "kind": "field"
+          },
+          {
+            "type": "field",
+            "label": "created_at",
+            "line": 15,
+            "kind": "field"
+          },
+          {
+            "type": "field",
+            "label": "updated_at",
+            "line": 16,
+            "kind": "field"
+          }
+        ]
+      }
+    ]
+  },
+  "backend/app/routers/__init__.py": {
+    "language": "python",
+    "error": null,
+    "nodes": []
+  },
+  "backend/app/routers/health.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "from fastapi import APIRouter",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "variable",
+        "label": "router = APIRouter()",
+        "line": 2,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "async def health()",
+        "line": 5,
+        "kind": "func",
+        "decorators": [
+          "@router.get(\"/\")"
+        ]
+      }
+    ]
+  },
+  "backend/app/routers/jobs.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "from fastapi import APIRouter, Depends, HTTPException",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy.ext.asyncio import AsyncSession",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy import select",
+        "line": 3,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.database import get_db",
+        "line": 4,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.models.job import Job",
+        "line": 5,
+        "kind": "import"
+      },
+      {
+        "type": "variable",
+        "label": "router = APIRouter()",
+        "line": 7,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "async def list_jobs(db)",
+        "line": 10,
+        "kind": "func",
+        "decorators": [
+          "@router.get(\"/\")"
+        ]
+      },
+      {
+        "type": "function",
+        "label": "async def get_job(job_id, db)",
+        "line": 16,
+        "kind": "func",
+        "decorators": [
+          "@router.get(\"/{job_id}\")"
+        ]
+      }
+    ]
+  },
+  "backend/app/routers/upload.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import os",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import uuid",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import aiofiles",
+        "line": 3,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import structlog",
+        "line": 4,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from fastapi import APIRouter, UploadFile, File (+2)",
+        "line": 5,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy.ext.asyncio import AsyncSession",
+        "line": 6,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy import select",
+        "line": 7,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import redis.asyncio",
+        "line": 8,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.database import get_db",
+        "line": 10,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.models.job import Job",
+        "line": 11,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.kafka_client import publish",
+        "line": 12,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.tasks.process import process_file",
+        "line": 13,
+        "kind": "import"
+      },
+      {
+        "type": "variable",
+        "label": "router = APIRouter()",
+        "line": 15,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "log = .get_logger()",
+        "line": 16,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "REDIS_URL = .getenv()",
+        "line": 18,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "UPLOAD_DIR",
+        "line": 19,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "async def get_redis()",
+        "line": 22,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "async def upload_file(file, db, r)",
+        "line": 30,
+        "kind": "func",
+        "decorators": [
+          "@router.post(\"/\")"
+        ]
+      },
+      {
+        "type": "function",
+        "label": "async def job_status(job_id, db)",
+        "line": 88,
+        "kind": "func",
+        "decorators": [
+          "@router.get(\"/status/{job_id}\")"
+        ]
+      }
+    ]
+  },
+  "backend/app/tasks/__init__.py": {
+    "language": "python",
+    "error": null,
+    "nodes": []
+  },
+  "backend/app/tasks/process.py": {
+    "language": "python",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import os",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import time",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import structlog",
+        "line": 3,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from celery import Celery",
+        "line": 4,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy import create_engine, update",
+        "line": 5,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from sqlalchemy.orm import sessionmaker",
+        "line": 6,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.models.job import Job",
+        "line": 8,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "from app.kafka_client import publish",
+        "line": 9,
+        "kind": "import"
+      },
+      {
+        "type": "variable",
+        "label": "log = .get_logger()",
+        "line": 11,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "CELERY_BROKER_URL = .getenv()",
+        "line": 13,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "CELERY_RESULT_BACKEND = .getenv()",
+        "line": 14,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "DATABASE_URL = .getenv()",
+        "line": 15,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "celery_app = Celery()",
+        "line": 17,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "sync_engine = create_engine()",
+        "line": 20,
+        "kind": "var"
+      },
+      {
+        "type": "variable",
+        "label": "SyncSession = sessionmaker()",
+        "line": 21,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "def process_file(self, job_id, file_path)",
+        "line": 24,
+        "kind": "func",
+        "decorators": [
+          "@celery_app.task"
+        ]
+      }
+    ]
+  },
+  "frontend/next.config.js": {
+    "language": "javascript",
+    "error": null,
+    "nodes": [
+      {
+        "type": "variable",
+        "label": "const nextConfig = {...}",
+        "line": 2,
+        "kind": "var"
+      },
+      {
+        "type": "export",
+        "label": "module.exports = {...}",
+        "line": 9,
+        "kind": "var"
+      }
+    ]
+  },
+  "frontend/data/dashboardMock.js": {
+    "language": "javascript",
+    "error": null,
+    "nodes": []
+  },
+  "frontend/pages/dashboard.js": {
+    "language": "javascript",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import { useState } from 'react'",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import Link from 'next/link'",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "function",
+        "label": "function formatUtc(isoString)",
+        "line": 12,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "function formatInt(n)",
+        "line": 16,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "variable",
+        "label": "const statusStyles = {...}",
+        "line": 27,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "function Badge({ children, variant = \"he)",
+        "line": 39,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "function Card({ title, children, style )",
+        "line": 60,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "function SummaryTab()",
+        "line": 79,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "function ApplicationTab()",
+        "line": 180,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "function InfrastructureTab()",
+        "line": 218,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "function NetworkTab()",
+        "line": 294,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "export default function DashboardPage()",
+        "line": 346,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "hook",
+        "label": "useState: [tab, setTab]",
+        "line": 347,
+        "kind": "var"
+      }
+    ]
+  },
+  "frontend/pages/index.js": {
+    "language": "javascript",
+    "error": null,
+    "nodes": [
+      {
+        "type": "import",
+        "label": "import { useState } from 'react'",
+        "line": 1,
+        "kind": "import"
+      },
+      {
+        "type": "import",
+        "label": "import Link from 'next/link'",
+        "line": 2,
+        "kind": "import"
+      },
+      {
+        "type": "function",
+        "label": "export default function Home()",
+        "line": 6,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "hook",
+        "label": "useState: [file, setFile]",
+        "line": 7,
+        "kind": "var"
+      },
+      {
+        "type": "hook",
+        "label": "useState: [jobs, setJobs]",
+        "line": 8,
+        "kind": "var"
+      },
+      {
+        "type": "hook",
+        "label": "useState: [loading, setLoading]",
+        "line": 9,
+        "kind": "var"
+      },
+      {
+        "type": "hook",
+        "label": "useState: [msg, setMsg]",
+        "line": 10,
+        "kind": "var"
+      },
+      {
+        "type": "function",
+        "label": "function upload()",
+        "line": 12,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "function",
+        "label": "function loadJobs()",
+        "line": 30,
+        "kind": "func",
+        "decorators": []
+      },
+      {
+        "type": "variable",
+        "label": "const statusColor = {...}",
+        "line": 40,
+        "kind": "var"
+      }
+    ]
+  }
+}

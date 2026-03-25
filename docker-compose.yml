@@ -175,7 +175,7 @@ services:
       dockerfile: Dockerfile
     container_name: celery
     networks: [service-net]
-    command: celery -A app.tasks worker --loglevel=info
+    command: sh -c "pip install psycopg2-binary==2.9.6 && celery -A app.tasks.process.celery_app worker --loglevel=info"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: ${REDIS_URL}
