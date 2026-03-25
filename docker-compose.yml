@@ -18,6 +18,7 @@ volumes:
   redis-data:
   kafka-data:
   pnog-graph-data:
+  frontend-node-modules:
 
 services:
 
@@ -198,9 +199,13 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost/api
-    depends_on:
-      - fastapi
+      NEXT_PUBLIC_API_URL: "/api"
+      INTERNAL_API_BASE: http://fastapi:8000
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./service/frontend:/app
+      - frontend-node-modules:/app/node_modules
+    command: ["sh", "-c", "npm install && exec npx next dev -H 0.0.0.0 -p 3000"]
     logging: *default-logging
 
   # ── OBSERVABILITY ─────────────────────────────────────────────
