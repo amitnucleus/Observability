@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Link from "next/link";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost/api";
 
@@ -41,8 +42,13 @@ export default function Home() {
   return (
     <div style={{ fontFamily: "Arial, sans-serif", background: "#0f172a", minHeight: "100vh", color: "#e2e8f0", padding: 32 }}>
       <h1 style={{ fontSize: 28, marginBottom: 4, color: "#fff" }}>PNOG Demo Service</h1>
-      <p style={{ color: "#64748b", marginBottom: 32, fontSize: 14 }}>
+      <p style={{ color: "#64748b", marginBottom: 8, fontSize: 14 }}>
         File upload + processing — touching all 8 log layers on every request
+      </p>
+      <p style={{ marginBottom: 32 }}>
+        <Link href="/dashboard" style={{ color: "#60a5fa", fontSize: 14 }}>
+          Observability dashboard →
+        </Link>
       </p>
 
       {/* Upload card */}
