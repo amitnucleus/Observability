@@ -13,7 +13,7 @@ docker compose up --build
 
 # 3. Open interfaces
 # Service:      http://localhost
-# Frontend:     http://localhost:3000
+# Frontend:     http://localhost:4000
 # Kafka UI:     http://localhost:8080
 # Prometheus:   http://localhost:9090
 # PNOG API:     http://localhost:8100/graphql
@@ -28,12 +28,12 @@ pnog/
 ├── .env                     # Environment variables
 ├── service/
 │   ├── nginx/               # Reverse proxy + JSON access logs
-│   ├── backend/             # FastAPI + Celery + Kafka publisher
-│   └── frontend/            # Next.js + Sentry
+│   ├── backend/             # FastAPI + Celery
+│   └── frontend/            # Next.js
 ├── infra/
-│   ├── kafka/               # Topic definitions
-│   ├── fluentd/             # Log routing → Kafka
-│   ├── prometheus/          # Metrics scraping
+│   ├── kafka/               # (removed from compose)
+│   ├── fluentd/             # (removed from compose)
+│   ├── prometheus/          # (removed from compose)
 │   └── fault_injection/     # Error playbook scripts
 └── pnog/
     ├── consumer/            # Kafka consumer + event router
@@ -49,14 +49,14 @@ pnog/
 
 | Layer | Source       | Kafka Topic        | PNOG Node Type       |
 |-------|--------------|--------------------|----------------------|
-| L0    | Nginx        | net.requests       | NetworkRequest       |
-| L1    | FastAPI      | app.events         | ServiceCall          |
+| L0    | Nginx        | (stdout/stderr)    | NetworkRequest       |
+| L1    | FastAPI      | (stdout/stderr)    | ServiceCall          |
 | L2    | Docker/K8s   | pod.logs           | PodEvent             |
 | L3    | Postgres     | db.queries         | DBQuery              |
 | L4    | Redis        | cache.events       | CacheEvent           |
-| L5    | Git webhook  | git.releases       | ReleaseSnapshot      |
+| L5    | Git webhook  | (stdout/stderr)    | ReleaseSnapshot      |
 | L6    | Browser      | frontend.errors    | FrontendError        |
-| L7    | Prometheus   | metrics.resources  | ResourceMetric       |
+| L7    | Prometheus   | (removed)          | ResourceMetric       |
 
 ## W(u,v,t) — The Weight Formula
 

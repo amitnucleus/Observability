@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   systemSummary,
@@ -7,6 +7,8 @@ import {
   infrastructureMock,
   networkMock,
 } from "../data/dashboardMock";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 /** Stable across SSR and browser (avoids hydration mismatch from locale / timezone defaults). */
 function formatUtc(isoString) {
@@ -76,9 +78,10 @@ function Card({ title, children, style = {} }) {
   );
 }
 
-function SummaryTab() {
+function SummaryTab({ gitLatest }) {
   const sys = systemSummary;
   const br = blastRadius;
+  const ge = gitLatest?.event || null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -100,6 +103,30 @@ function SummaryTab() {
           <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>
             {sys.activeAlerts} active alerts · {sys.healthyApps}/{sys.totalApps} apps healthy
           </p>
+        </Card>
+
+        <Card title="Git repo snapshot">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <p style={{ color: "#64748b", fontSize: 12, margin: 0 }}>Repository</p>
+            <p style={{ color: "#fff", fontSize: 16, fontWeight: 600, margin: 0 }}>
+              {ge ? ge.repo : "Mock repo"}
+            </p>
+            <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>
+              {ge ? ge.ref : "refs/heads/main"}{" "}
+              <span style={{ color: "#64748b", fontSize: 12 }}>
+                · {ge ? (gitLatest?.source || "unknown") : "mock"}
+              </span>
+            </p>
+            <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>
+              Commit:{" "}
+              <span style={{ fontFamily: "monospace", color: "#cbd5e1" }}>
+                {ge ? String(ge.commit).slice(0, 12) : "abc123"}
+              </span>
+            </p>
+            <p style={{ color: "#64748b", fontSize: 12, marginTop: 8 }}>
+              {ge?.timestamp ? `Last update: ${formatUtc(ge.timestamp)}` : "Last update: mock"}
+            </p>
+          </div>
         </Card>
       </div>
 
@@ -345,6 +372,48 @@ function NetworkTab() {
 
 export default function DashboardPage() {
   const [tab, setTab] = useState("summary");
+  const [showConfig, setShowConfig] = useState(false);
+  const [gitConfig, setGitConfig] = useState({
+    repo: "pnog/demo-service",
+    ref: "refs/heads/main",
+    commit: "abc123",
+    compare: "",
+  });
+  const [gitLatest, setGitLatest] = useState(null);
+  const [gitErr, setGitErr] = useState("");
+
+  async function refreshGit() {
+    setGitErr("");
+    try {
+      const cfgRes = await fetch(`${API}/git/config/`);
+      if (cfgRes.ok) {
+        const cfg = await cfgRes.json();
+        setGitConfig({
+          repo: cfg.repo || gitConfig.repo,
+          ref: cfg.ref || gitConfig.ref,
+          commit: cfg.commit || gitConfig.commit,
+          compare: cfg.compare || "",
+        });
+      }
+    } catch (e) {
+      // Keep UI usable even if backend isn't reachable.
+    }
+
+    try {
+      const latestRes = await fetch(`${API}/git/latest/`);
+      if (latestRes.ok) {
+        const latest = await latestRes.json();
+        setGitLatest(latest);
+      }
+    } catch (e) {
+      // Keep mock baseline.
+    }
+  }
+
+  useEffect(() => {
+    refreshGit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div style={{ fontFamily: "system-ui, Arial, sans-serif", background: "#0f172a", minHeight: "100vh", color: "#e2e8f0" }}>
@@ -361,7 +430,7 @@ export default function DashboardPage() {
       >
         <div>
           <h1 style={{ fontSize: 20, margin: 0, color: "#fff" }}>Observability dashboard</h1>
-          <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>Unified view · mock data</p>
+            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>Unified view · mock data + Git snapshot</p>
         </div>
         <Link
           href="/"
@@ -369,6 +438,22 @@ export default function DashboardPage() {
         >
           ← Demo service
         </Link>
+          <button
+            type="button"
+            onClick={() => setShowConfig(true)}
+            style={{
+              background: "#334155",
+              border: "1px solid #475569",
+              color: "#e2e8f0",
+              padding: "8px 14px",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            ⚙ Config
+          </button>
       </header>
 
       <nav
@@ -405,11 +490,140 @@ export default function DashboardPage() {
       </nav>
 
       <main style={{ padding: 28, maxWidth: 1200, margin: "0 auto" }}>
-        {tab === "summary" && <SummaryTab />}
+        {tab === "summary" && <SummaryTab gitLatest={gitLatest} />}
         {tab === "application" && <ApplicationTab />}
         {tab === "infrastructure" && <InfrastructureTab />}
         {tab === "network" && <NetworkTab />}
       </main>
+
+      {showConfig && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+            zIndex: 50,
+          }}
+          onClick={() => setShowConfig(false)}
+        >
+          <div
+            style={{
+              width: "min(680px, 100%)",
+              background: "#0b1220",
+              border: "1px solid #334155",
+              borderRadius: 12,
+              padding: 20,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 16, color: "#fff" }}>Git configuration</h2>
+                <p style={{ margin: "6px 0 0", fontSize: 13, color: "#64748b" }}>
+                  Used by the dashboard for “latest git” snapshot (Kafka-first, GitHub fallback).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConfig(false)}
+                style={{ background: "transparent", border: "1px solid #334155", color: "#94a3b8", padding: "6px 10px", borderRadius: 8, cursor: "pointer" }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600 }}>Repo</label>
+                <input
+                  value={gitConfig.repo}
+                  onChange={(e) => setGitConfig({ ...gitConfig, repo: e.target.value })}
+                  style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", color: "#e2e8f0" }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600 }}>Ref / branch</label>
+                <input
+                  value={gitConfig.ref}
+                  onChange={(e) => setGitConfig({ ...gitConfig, ref: e.target.value })}
+                  style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", color: "#e2e8f0" }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600 }}>Commit (optional)</label>
+                <input
+                  value={gitConfig.commit || ""}
+                  onChange={(e) => setGitConfig({ ...gitConfig, commit: e.target.value })}
+                  placeholder="abc123"
+                  style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", color: "#e2e8f0" }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600 }}>Compare (optional)</label>
+                <input
+                  value={gitConfig.compare || ""}
+                  onChange={(e) => setGitConfig({ ...gitConfig, compare: e.target.value })}
+                  style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", color: "#e2e8f0" }}
+                />
+              </div>
+            </div>
+
+            {gitErr && <p style={{ marginTop: 12, color: "#f87171", fontSize: 13 }}>{gitErr}</p>}
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setGitErr("");
+                    const res = await fetch(`${API}/git/config/`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(gitConfig),
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    await refreshGit();
+                    setShowConfig(false);
+                  } catch (e) {
+                    setGitErr(String(e?.message || e));
+                  }
+                }}
+                style={{ background: "#2563eb", border: "none", color: "#fff", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}
+              >
+                Save config
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setGitErr("");
+                    const res = await fetch(`${API}/git/simulate/`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(gitConfig),
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    await refreshGit();
+                  } catch (e) {
+                    setGitErr(String(e?.message || e));
+                  }
+                }}
+                style={{ background: "#334155", border: "1px solid #475569", color: "#e2e8f0", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}
+              >
+                Simulate release
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

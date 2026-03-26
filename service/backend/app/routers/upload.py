@@ -5,47 +5,28 @@ import structlog
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import redis.asyncio as aioredis
 
 from app.database import get_db
 from app.models.job import Job
 from app.kafka_client import publish
-from app.tasks.process import process_file
 
 router = APIRouter()
 log    = structlog.get_logger()
 
-REDIS_URL   = os.getenv("REDIS_URL", "redis://redis:6379/0")
 UPLOAD_DIR  = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-async def get_redis():
-    r = aioredis.from_url(REDIS_URL)
-    try:
-        yield r
-    finally:
-        await r.close()
 
 @router.post("/")
 async def upload_file(
     file: UploadFile = File(...),
     db:   AsyncSession = Depends(get_db),
-    r:    aioredis.Redis = Depends(get_redis),
 ):
-    # L4 Cache — check if this filename was recently processed
-    cache_key = f"upload:{file.filename}"
-    cached = await r.get(cache_key)
-
     publish("app.events", {
         "event": "upload_received",
         "filename": file.filename,
-        "cache_hit": bool(cached),
+        "cache_hit": False,
         "layer": "L1",
     })
-
-    if cached:
-        log.info("cache_hit", filename=file.filename)
-        return {"job_id": cached.decode(), "cached": True}
 
     # Save file
     job_id  = str(uuid.uuid4())
@@ -68,20 +49,14 @@ async def upload_file(
         "layer": "L3",
     })
 
-    # L4 Cache — store result for 60s
-    await r.setex(cache_key, 60, job_id)
-
-    # Dispatch to Celery worker (L2 Pod)
-    process_file.delay(job_id, path)
-
     publish("app.events", {
-        "event": "job_dispatched",
+        "event": "job_created",
         "job_id": job_id,
         "layer": "L1",
     })
 
     log.info("job_created", job_id=job_id, filename=file.filename)
-    return {"job_id": job_id, "cached": False}
+    return {"job_id": job_id, "cached": False, "note": "Redis/Celery disabled; job not auto-processed"}
 
 
 @router.get("/status/{job_id}")
