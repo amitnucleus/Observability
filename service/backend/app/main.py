@@ -3,8 +3,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.routers import upload, jobs, health, git_repo
+from app.routers import upload, jobs, health
+from app.routers.config import git as config_git
 from app.database import engine, Base
+from app.models.git_config import GitConfigRow  # noqa: F401 — register table with Base
 
 log = structlog.get_logger()
 
@@ -24,7 +26,7 @@ Instrumentator().instrument(app).expose(app)
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(jobs.router,   prefix="/jobs",   tags=["jobs"])
-app.include_router(git_repo.router, prefix="/git", tags=["git"])
+app.include_router(config_git.router, prefix="/git", tags=["git"])
 
 @app.on_event("startup")
 async def startup():

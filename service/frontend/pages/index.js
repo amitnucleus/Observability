@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Link from "next/link";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "/api";
 
@@ -50,6 +51,7 @@ export default function Home() {
           padding: "14px 18px",
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: 12,
         }}
       >
@@ -57,6 +59,21 @@ export default function Home() {
           <span style={{ width: 10, height: 10, borderRadius: 999, background: "#34d399", display: "inline-block" }} />
           <span style={{ fontWeight: 800, color: "#fff" }}>PNOG Demo Service</span>
         </div>
+        <Link
+          href="/config/git"
+          style={{
+            background: "#334155",
+            border: "1px solid #475569",
+            color: "#e2e8f0",
+            padding: "8px 12px",
+            borderRadius: 10,
+            textDecoration: "none",
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          Config
+        </Link>
       </header>
 
       <main style={{ padding: 32, minHeight: "calc(100vh - 56px)" }}>
