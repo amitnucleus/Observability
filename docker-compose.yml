@@ -30,9 +30,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    # Redis removed
-
   # ── APPLICATION ───────────────────────────────────────────────
 
   nginx:

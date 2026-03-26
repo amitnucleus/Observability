@@ -5,7 +5,6 @@ from threading import Lock
 from typing import Any, Optional
 
 import httpx
-from confluent_kafka import Consumer, TopicPartition
 from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -21,7 +20,8 @@ DEFAULT_REF = os.getenv("GIT_REF", "refs/heads/main")
 DEFAULT_COMMIT = os.getenv("GIT_COMMIT", "abc123")
 
 GIT_TOPIC = os.getenv("GIT_RELEASES_TOPIC", "git.releases")
-KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:9092")
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "").strip()
+DISABLE_KAFKA = os.getenv("DISABLE_KAFKA", "").strip().lower() in ("1", "true", "yes", "on")
 
 _config_lock = Lock()
 _git_config = {
@@ -66,8 +66,16 @@ def _parse_github_repo(repo: str) -> Optional[tuple[str, str]]:
 
 
 def _read_latest_from_kafka(topic: str) -> Optional[dict[str, Any]]:
+    if DISABLE_KAFKA or not KAFKA_BROKER:
+        return None
+
     # Single-partition assumption is fine for the demo stack (kafka-init creates 1 partition).
     # If your Kafka topic uses multiple partitions, we can enhance this later.
+    try:
+        from confluent_kafka import Consumer, TopicPartition  # type: ignore
+    except Exception:
+        return None
+
     c = Consumer(
         {
             "bootstrap.servers": KAFKA_BROKER,

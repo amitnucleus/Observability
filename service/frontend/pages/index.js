@@ -1,7 +1,6 @@
 import { useState } from "react";
-import Link from "next/link";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost/api";
+const API = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export default function Home() {
   const [file, setFile]     = useState(null);
@@ -40,16 +39,31 @@ export default function Home() {
   const statusColor = { pending: "#f59e0b", processing: "#3b82f6", done: "#10b981", failed: "#ef4444" };
 
   return (
-    <div style={{ fontFamily: "Arial, sans-serif", background: "#0f172a", minHeight: "100vh", color: "#e2e8f0", padding: 32 }}>
-      <h1 style={{ fontSize: 28, marginBottom: 4, color: "#fff" }}>PNOG Demo Service</h1>
-      <p style={{ color: "#64748b", marginBottom: 8, fontSize: 14 }}>
-        File upload + processing — touching all 8 log layers on every request
-      </p>
-      <p style={{ marginBottom: 32 }}>
-        <Link href="/dashboard" style={{ color: "#60a5fa", fontSize: 14 }}>
-          Observability dashboard →
-        </Link>
-      </p>
+    <div style={{ fontFamily: "system-ui, Arial, sans-serif", background: "#0f172a", minHeight: "100vh", color: "#e2e8f0" }}>
+      <header
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+          background: "#0f172a",
+          borderBottom: "1px solid #1e293b",
+          padding: "14px 18px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 999, background: "#34d399", display: "inline-block" }} />
+          <span style={{ fontWeight: 800, color: "#fff" }}>PNOG Demo Service</span>
+        </div>
+      </header>
+
+      <main style={{ padding: 32, minHeight: "calc(100vh - 56px)" }}>
+          <h1 style={{ fontSize: 26, marginBottom: 6, color: "#fff" }}>Upload workflow</h1>
+          <p style={{ color: "#64748b", marginBottom: 20, fontSize: 14 }}>
+            Upload a file, then view jobs and results.
+          </p>
 
       {/* Upload card */}
       <div style={{ background: "#1e293b", borderRadius: 10, padding: 24, marginBottom: 24, maxWidth: 540 }}>
@@ -146,6 +160,7 @@ export default function Home() {
       <p style={{ color: "#334155", fontSize: 11, marginTop: 12 }}>
         Every upload touches all 8 layers. Watch PNOG at localhost:3002
       </p>
+      </main>
     </div>
   );
 }
