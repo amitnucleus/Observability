@@ -64,8 +64,10 @@ export default function Home() {
         parsedFiles: data.parsed_files,
         nodeCount: data.node_count,
         edgeCount: data.edge_count,
+        functionGraphCount: data.function_graph_count || 0,
         generatedAt: data.generated_at,
         graph: data.graph,
+        functionGraphs: data.function_graphs || [],
       });
       setAstMsg("AST graph generated.");
     } catch (e) {
@@ -92,6 +94,7 @@ export default function Home() {
           scanned_files: astStats.scannedFiles,
           parsed_files: astStats.parsedFiles,
           graph: astStats.graph,
+          function_graphs: astStats.functionGraphs || [],
         }),
       });
       const data = await res.json();
@@ -99,7 +102,7 @@ export default function Home() {
         throw new Error(data.message || "Failed to save AST graph");
       }
       setAstMsg(
-        `Saved to DB. Graph ID: ${data.ast_graph_id} (${data.individual_graphs_saved} individual graphs).`
+        `Saved to DB. Graph ID: ${data.ast_graph_id} (${data.individual_graphs_saved} file graphs, ${data.function_graphs_saved || 0} function graphs).`
       );
       await loadSavedGraphs();
     } catch (e) {
@@ -170,20 +173,68 @@ export default function Home() {
     const ids = new Set(displayNodes.map((n) => n.id));
     const displayEdges = edges.filter((e) => ids.has(e.source) && ids.has(e.target));
 
-    const width = 760;
-    const height = 360;
-    const cx = width / 2;
-    const cy = height / 2;
-    const radius = Math.min(width, height) * 0.38;
+    const width = 920;
+    const height = 520;
 
     const pos = {};
-    displayNodes.forEach((n, i) => {
-      const a = (2 * Math.PI * i) / displayNodes.length;
-      pos[n.id] = {
-        x: cx + radius * Math.cos(a),
-        y: cy + radius * Math.sin(a),
-      };
+    const incoming = new Map();
+    const outgoing = new Map();
+    displayNodes.forEach((n) => {
+      incoming.set(n.id, 0);
+      outgoing.set(n.id, []);
     });
+    displayEdges.forEach((e) => {
+      if (!incoming.has(e.target)) return;
+      incoming.set(e.target, (incoming.get(e.target) || 0) + 1);
+      outgoing.get(e.source)?.push(e.target);
+    });
+
+    const roots = displayNodes.filter((n) => (incoming.get(n.id) || 0) === 0);
+    const isTreeLike = roots.length > 0 && displayEdges.length >= Math.max(1, displayNodes.length - 1);
+
+    if (isTreeLike) {
+      const depthById = new Map();
+      const queue = [];
+      roots.forEach((r) => {
+        depthById.set(r.id, 0);
+        queue.push(r.id);
+      });
+      while (queue.length > 0) {
+        const cur = queue.shift();
+        const d = depthById.get(cur) || 0;
+        for (const nxt of outgoing.get(cur) || []) {
+          if (!depthById.has(nxt) || (depthById.get(nxt) || 0) > d + 1) {
+            depthById.set(nxt, d + 1);
+            queue.push(nxt);
+          }
+        }
+      }
+      const layers = new Map();
+      displayNodes.forEach((n) => {
+        const d = depthById.get(n.id) ?? 0;
+        if (!layers.has(d)) layers.set(d, []);
+        layers.get(d).push(n);
+      });
+      const maxDepth = Math.max(...layers.keys(), 0);
+      const yGap = (height - 80) / Math.max(1, maxDepth + 1);
+      for (const [d, layerNodes] of [...layers.entries()].sort((a, b) => a[0] - b[0])) {
+        const xGap = width / (layerNodes.length + 1);
+        layerNodes.forEach((n, idx) => {
+          pos[n.id] = { x: xGap * (idx + 1), y: 40 + d * yGap };
+        });
+      }
+    } else {
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(width, height) * 0.38;
+      displayNodes.forEach((n, i) => {
+        const a = (2 * Math.PI * i) / Math.max(1, displayNodes.length);
+        pos[n.id] = {
+          x: cx + radius * Math.cos(a),
+          y: cy + radius * Math.sin(a),
+        };
+      });
+    }
 
     const colorByType = {
       file: "#60a5fa",
@@ -242,7 +293,16 @@ export default function Home() {
               const s = pos[e.source];
               const t = pos[e.target];
               if (!s || !t) return null;
-              return <line key={`e-${idx}`} x1={s.x} y1={s.y} x2={t.x} y2={t.y} stroke="#334155" strokeWidth="1.2" />;
+              return (
+                <g key={`e-${idx}`}>
+                  <line x1={s.x} y1={s.y} x2={t.x} y2={t.y} stroke="#334155" strokeWidth="1.2" />
+                  {e.relation ? (
+                    <text x={(s.x + t.x) / 2} y={(s.y + t.y) / 2 - 4} fill="#64748b" fontSize="10" textAnchor="middle">
+                      {e.relation}
+                    </text>
+                  ) : null}
+                </g>
+              );
             })}
             {displayNodes.map((n) => {
               const p = pos[n.id];
@@ -489,7 +549,7 @@ export default function Home() {
         {astStats && (
           <div style={{ marginTop: 12, borderTop: "1px solid #334155", paddingTop: 12 }}>
             <p style={{ margin: "0 0 10px", fontSize: 13, color: "#cbd5e1" }}>
-              <strong>{astStats.repo}</strong> @ <strong>{astStats.ref}</strong> | files: {astStats.parsedFiles}/{astStats.scannedFiles} | nodes: {astStats.nodeCount} | edges: {astStats.edgeCount}
+              <strong>{astStats.repo}</strong> @ <strong>{astStats.ref}</strong> | files: {astStats.parsedFiles}/{astStats.scannedFiles} | nodes: {astStats.nodeCount} | edges: {astStats.edgeCount} | function graphs: {astStats.functionGraphCount || 0}
             </p>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
@@ -534,6 +594,7 @@ export default function Home() {
                 <th style={{ padding: "8px 6px" }}>Nodes</th>
                 <th style={{ padding: "8px 6px" }}>Edges</th>
                 <th style={{ padding: "8px 6px" }}>Individual</th>
+                <th style={{ padding: "8px 6px" }}>Functions</th>
                 <th style={{ padding: "8px 6px" }}>ID</th>
                 <th style={{ padding: "8px 6px" }}>Action</th>
               </tr>
@@ -548,6 +609,7 @@ export default function Home() {
                     <td style={{ padding: "8px 6px", color: "#cbd5e1" }}>{g.node_count}</td>
                     <td style={{ padding: "8px 6px", color: "#cbd5e1" }}>{g.edge_count}</td>
                     <td style={{ padding: "8px 6px", color: "#cbd5e1" }}>{g.individual_graphs_count}</td>
+                  <td style={{ padding: "8px 6px", color: "#cbd5e1" }}>{g.function_graphs_count || 0}</td>
                     <td style={{ padding: "8px 6px", color: "#94a3b8", fontFamily: "monospace" }}>{g.id.slice(0, 8)}...</td>
                     <td style={{ padding: "8px 6px", display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button
@@ -584,7 +646,7 @@ export default function Home() {
                   </tr>
                   {expandedSavedGraphId === g.id && (
                     <tr>
-                      <td colSpan={8} style={{ padding: "10px 8px", background: "#0f172a", borderBottom: "1px solid #334155" }}>
+                      <td colSpan={9} style={{ padding: "10px 8px", background: "#0f172a", borderBottom: "1px solid #334155" }}>
                         {expandedError ? (
                           <p style={{ color: "#f87171", margin: 0, fontSize: 12 }}>{expandedError}</p>
                         ) : expandedLoading ? (

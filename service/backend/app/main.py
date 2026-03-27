@@ -6,7 +6,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.routers import upload, jobs, health
 from app.routers.config import git as config_git
 from app.database import engine, Base
-from app.models.ast_graph import AstGraph, AstGraphIndividual  # noqa: F401 — register tables
+from app.models.ast_graph import AstGraph, AstGraphIndividual, AstGraphFunction  # noqa: F401 — register tables
 from app.models.git_config import GitConfigRow  # noqa: F401 — register table with Base
 
 log = structlog.get_logger()

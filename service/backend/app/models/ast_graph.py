@@ -31,3 +31,17 @@ class AstGraphIndividual(Base):
     edge_count = Column(Integer, nullable=False, default=0)
     graph = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AstGraphFunction(Base):
+    __tablename__ = "ast_graph_function"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ast_graph_id = Column(UUID(as_uuid=True), ForeignKey("ast_graph.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_path = Column(String(2048), nullable=False)
+    function_name = Column(String(512), nullable=False)
+    start_line = Column(Integer, nullable=True)
+    node_count = Column(Integer, nullable=False, default=0)
+    edge_count = Column(Integer, nullable=False, default=0)
+    graph = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

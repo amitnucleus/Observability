@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.kafka_client import publish
-from app.models.ast_graph import AstGraph, AstGraphIndividual
+from app.models.ast_graph import AstGraph, AstGraphIndividual, AstGraphFunction
 from app.models.git_config import GitConfigRow, SINGLETON_ID
 
 router = APIRouter()
@@ -55,6 +55,7 @@ class AstSaveRequest(BaseModel):
     scanned_files: int = 0
     parsed_files: int = 0
     graph: dict[str, Any]
+    function_graphs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _normalize_ref(ref: str) -> str:
@@ -260,6 +261,177 @@ def _extract_symbols_for_js(source: str) -> list[dict[str, Any]]:
     return nodes
 
 
+def _extract_function_graphs_for_python(source: str, rel_path: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    try:
+        tree = ast.parse(source)
+    except Exception:
+        return out
+
+    def node_type_label(n: ast.AST) -> str:
+        if isinstance(n, ast.Constant):
+            return f"constant: {repr(getattr(n, 'value', None))[:24]}"
+        if isinstance(n, ast.Name):
+            return f"variable: {n.id}"
+        if isinstance(n, ast.arg):
+            return f"arg: {n.arg}"
+        if isinstance(n, ast.Compare):
+            op = n.ops[0].__class__.__name__ if getattr(n, "ops", None) else "Compare"
+            return f"compare: {op}"
+        if isinstance(n, ast.BinOp):
+            return f"binop: {n.op.__class__.__name__}"
+        if isinstance(n, ast.Call):
+            if isinstance(n.func, ast.Name):
+                return f"call: {n.func.id}"
+            if isinstance(n.func, ast.Attribute):
+                return f"call: {n.func.attr}"
+            return "call"
+        if isinstance(n, ast.Return):
+            return "return"
+        if isinstance(n, ast.While):
+            return "while"
+        if isinstance(n, ast.If):
+            return "if"
+        if isinstance(n, ast.Assign):
+            return "assign"
+        return n.__class__.__name__
+
+    def edge_relation(parent: ast.AST, child: ast.AST) -> str:
+        if isinstance(parent, ast.While):
+            if child is parent.test:
+                return "condition"
+            if child in parent.body:
+                return "body"
+        if isinstance(parent, ast.If):
+            if child is parent.test:
+                return "condition"
+            if child in parent.body:
+                return "if-body"
+            if child in parent.orelse:
+                return "else-body"
+        if isinstance(parent, ast.Assign):
+            if child in parent.targets:
+                return "target"
+            if child is parent.value:
+                return "value"
+        if isinstance(parent, ast.Return):
+            if child is parent.value:
+                return "value"
+        if isinstance(parent, ast.Compare):
+            if child is parent.left:
+                return "left"
+            if child in parent.comparators:
+                return "right"
+        if isinstance(parent, ast.BinOp):
+            if child is parent.left:
+                return "left"
+            if child is parent.right:
+                return "right"
+        return "child"
+
+    def build_subtree(root_node: ast.AST, base_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        nodes: list[dict[str, Any]] = []
+        edges: list[dict[str, Any]] = []
+        counter = {"v": 0}
+        node_id_by_obj: dict[int, str] = {}
+
+        def visit(n: ast.AST) -> str:
+            obj_id = id(n)
+            if obj_id in node_id_by_obj:
+                return node_id_by_obj[obj_id]
+            counter["v"] += 1
+            nid = f"{base_id}:n{counter['v']}"
+            node_id_by_obj[obj_id] = nid
+            nodes.append(
+                {
+                    "id": nid,
+                    "type": n.__class__.__name__.lower(),
+                    "label": node_type_label(n),
+                    "line": getattr(n, "lineno", None),
+                    "file": rel_path,
+                }
+            )
+            for child in ast.iter_child_nodes(n):
+                cid = visit(child)
+                edges.append({"source": nid, "target": cid, "relation": edge_relation(n, child)})
+            return nid
+
+        visit(root_node)
+        return nodes, edges
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        fname = node.name
+        start_line = getattr(node, "lineno", 0)
+        base_id = f"function:{rel_path}:{fname}:{start_line}"
+        fn_nodes, fn_edges = build_subtree(node, base_id)
+
+        out.append(
+            {
+                "file_path": rel_path,
+                "function_name": fname,
+                "start_line": start_line,
+                "nodes": fn_nodes,
+                "edges": fn_edges,
+            }
+        )
+    return out
+
+
+JS_FUNCTION_DECL_RE = re.compile(r"(?:export\s+default\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+JS_ARROW_FN_RE = re.compile(r"(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>")
+
+
+def _extract_function_graphs_for_js(source: str, rel_path: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    lines = source.splitlines()
+    for i, raw in enumerate(lines, start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        m = JS_FUNCTION_DECL_RE.search(line) or JS_ARROW_FN_RE.search(line)
+        if not m:
+            continue
+
+        fname = m.group(1)
+        start_line = i
+        fn_id = f"function:{rel_path}:{fname}:{start_line}"
+        fn_nodes = [{"id": fn_id, "type": "function", "label": fname, "file": rel_path, "line": start_line}]
+        fn_edges: list[dict[str, Any]] = []
+
+        # Approximate function body window to avoid heavy JS parsing.
+        body_lines = lines[i - 1 : min(len(lines), i + 60)]
+        for j, body_raw in enumerate(body_lines, start=start_line):
+            body_line = body_raw.strip()
+            if not body_line:
+                continue
+            v = JS_VARIABLE_RE.search(body_line)
+            if v:
+                vname = v.group(1)
+                vid = f"var:{rel_path}:{fname}:{vname}:{j}"
+                fn_nodes.append({"id": vid, "type": "variable", "label": vname, "file": rel_path, "line": j})
+                fn_edges.append({"source": fn_id, "target": vid, "relation": "contains"})
+            for cm in JS_CALL_RE.finditer(body_raw):
+                callee = cm.group(1)
+                if callee in {"if", "for", "while", "switch", "catch", "function"}:
+                    continue
+                cid = f"call:{rel_path}:{fname}:{callee}:{j}"
+                fn_nodes.append({"id": cid, "type": "call", "label": callee, "file": rel_path, "line": j})
+                fn_edges.append({"source": fn_id, "target": cid, "relation": "contains"})
+
+        out.append(
+            {
+                "file_path": rel_path,
+                "function_name": fname,
+                "start_line": start_line,
+                "nodes": fn_nodes,
+                "edges": fn_edges,
+            }
+        )
+    return out
+
+
 async def _download_repo_archive(owner: str, name: str, branch: str, token: str) -> bytes:
     headers = {}
     if token:
@@ -297,6 +469,7 @@ async def _build_ast_graph_from_repo(cfg: GitConfig) -> dict[str, Any]:
     graph_nodes: list[dict[str, Any]] = []
     graph_edges: list[dict[str, Any]] = []
     per_file_graphs: list[dict[str, Any]] = []
+    function_graphs: list[dict[str, Any]] = []
     import_nodes_seen: set[str] = set()
     max_nodes = 6000
 
@@ -327,8 +500,10 @@ async def _build_ast_graph_from_repo(cfg: GitConfig) -> dict[str, Any]:
 
         if ext == ".py":
             sym_nodes = _extract_symbols_for_python(source)
+            function_graphs.extend(_extract_function_graphs_for_python(source, rel_path))
         else:
             sym_nodes = _extract_symbols_for_js(source)
+            function_graphs.extend(_extract_function_graphs_for_js(source, rel_path))
 
         parsed_files += 1
         for sym in sym_nodes:
@@ -374,6 +549,7 @@ async def _build_ast_graph_from_repo(cfg: GitConfig) -> dict[str, Any]:
         "nodes": graph_nodes,
         "edges": graph_edges,
         "individual_graphs": per_file_graphs,
+        "function_graphs": function_graphs,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -678,11 +854,13 @@ async def generate_ast_graph(
         "parsed_files": graph["parsed_files"],
         "node_count": len(graph["nodes"]),
         "edge_count": len(graph["edges"]),
+        "function_graph_count": len(graph.get("function_graphs") or []),
         "generated_at": graph["generated_at"],
         "graph": {
             "nodes": graph["nodes"],
             "edges": graph["edges"],
         },
+        "function_graphs": graph.get("function_graphs") or [],
     }
 
 
@@ -722,12 +900,30 @@ async def save_ast_graph(req: AstSaveRequest, db: AsyncSession = Depends(get_db)
     if ind_rows:
         db.add_all(ind_rows)
 
+    function_rows = [
+        AstGraphFunction(
+            ast_graph_id=row.id,
+            file_path=item.get("file_path", ""),
+            function_name=item.get("function_name", "unknown"),
+            start_line=item.get("start_line"),
+            node_count=len(item.get("nodes") or []),
+            edge_count=len(item.get("edges") or []),
+            graph={"nodes": item.get("nodes") or [], "edges": item.get("edges") or []},
+            created_at=datetime.utcnow(),
+        )
+        for item in (req.function_graphs or [])
+        if item.get("file_path") and item.get("function_name")
+    ]
+    if function_rows:
+        db.add_all(function_rows)
+
     await db.commit()
     return {
         "ok": True,
         "message": "AST graph saved to database.",
         "ast_graph_id": str(row.id),
         "individual_graphs_saved": len(ind_rows),
+        "function_graphs_saved": len(function_rows),
     }
 
 
@@ -740,6 +936,7 @@ async def list_saved_ast_graphs(db: AsyncSession = Depends(get_db)) -> dict[str,
 
     ast_ids = [r.id for r in rows]
     count_by_ast_id: dict[str, int] = {}
+    function_count_by_ast_id: dict[str, int] = {}
     if ast_ids:
         ind_rows = (
             await db.execute(
@@ -749,6 +946,15 @@ async def list_saved_ast_graphs(db: AsyncSession = Depends(get_db)) -> dict[str,
         for ast_id in ind_rows:
             key = str(ast_id)
             count_by_ast_id[key] = count_by_ast_id.get(key, 0) + 1
+
+        fn_rows = (
+            await db.execute(
+                select(AstGraphFunction.ast_graph_id).where(AstGraphFunction.ast_graph_id.in_(ast_ids))
+            )
+        ).scalars().all()
+        for ast_id in fn_rows:
+            key = str(ast_id)
+            function_count_by_ast_id[key] = function_count_by_ast_id.get(key, 0) + 1
 
     items = [
         {
@@ -760,6 +966,7 @@ async def list_saved_ast_graphs(db: AsyncSession = Depends(get_db)) -> dict[str,
             "node_count": r.node_count,
             "edge_count": r.edge_count,
             "individual_graphs_count": count_by_ast_id.get(str(r.id), 0),
+            "function_graphs_count": function_count_by_ast_id.get(str(r.id), 0),
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         for r in rows
@@ -779,6 +986,13 @@ async def get_saved_ast_graph(ast_graph_id: str, db: AsyncSession = Depends(get_
     individual_rows = (
         await db.execute(
             select(AstGraphIndividual).where(AstGraphIndividual.ast_graph_id == row.id).order_by(AstGraphIndividual.file_path)
+        )
+    ).scalars().all()
+    function_rows = (
+        await db.execute(
+            select(AstGraphFunction)
+            .where(AstGraphFunction.ast_graph_id == row.id)
+            .order_by(AstGraphFunction.file_path, AstGraphFunction.start_line)
         )
     ).scalars().all()
 
@@ -802,6 +1016,17 @@ async def get_saved_ast_graph(ast_graph_id: str, db: AsyncSession = Depends(get_
                     "edge_count": r.edge_count,
                 }
                 for r in individual_rows
+            ],
+            "function_graphs": [
+                {
+                    "id": str(r.id),
+                    "file_path": r.file_path,
+                    "function_name": r.function_name,
+                    "start_line": r.start_line,
+                    "node_count": r.node_count,
+                    "edge_count": r.edge_count,
+                }
+                for r in function_rows
             ],
         },
     }
@@ -828,6 +1053,37 @@ async def get_saved_individual_ast_graph(individual_graph_id: str, db: AsyncSess
             "repo": parent.repo if parent else None,
             "ref": parent.ref if parent else None,
             "file_path": row.file_path,
+            "node_count": row.node_count,
+            "edge_count": row.edge_count,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "graph": row.graph or {"nodes": [], "edges": []},
+        },
+    }
+
+
+@router.get("/ast/function/{function_graph_id}/")
+@router.get("/ast/function/{function_graph_id}")
+async def get_saved_function_ast_graph(function_graph_id: str, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    row = (
+        await db.execute(select(AstGraphFunction).where(AstGraphFunction.id == function_graph_id))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Function-level AST graph not found")
+
+    parent = (
+        await db.execute(select(AstGraph).where(AstGraph.id == row.ast_graph_id))
+    ).scalar_one_or_none()
+
+    return {
+        "ok": True,
+        "item": {
+            "id": str(row.id),
+            "ast_graph_id": str(row.ast_graph_id),
+            "repo": parent.repo if parent else None,
+            "ref": parent.ref if parent else None,
+            "file_path": row.file_path,
+            "function_name": row.function_name,
+            "start_line": row.start_line,
             "node_count": row.node_count,
             "edge_count": row.edge_count,
             "created_at": row.created_at.isoformat() if row.created_at else None,
