@@ -12,6 +12,7 @@ def parse(data: dict) -> CanonicalEvent | None:
             severity   = "ERROR",
             payload    = data,
             source     = "sentry",
+            node_type  = "FRONTEND_ERROR",
         )
     except Exception:
         return None

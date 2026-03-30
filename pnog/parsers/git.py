@@ -12,6 +12,7 @@ def parse(data: dict) -> CanonicalEvent | None:
             severity   = "INFO",
             payload    = data,
             source     = "git-webhook",
+            node_type  = "RELEASE_SNAPSHOT",
         )
     except Exception:
         return None
