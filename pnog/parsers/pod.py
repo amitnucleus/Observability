@@ -14,6 +14,7 @@ def parse(data: dict) -> CanonicalEvent | None:
             severity   = severity,
             payload    = data,
             source     = "celery",
+            node_type  = "POD_EVENT",
         )
     except Exception:
         return None

@@ -14,6 +14,7 @@ def parse(data: dict) -> CanonicalEvent | None:
             severity   = severity,
             payload    = data,
             source     = "fastapi",
+            node_type  = "SERVICE_CALL",
         )
     except Exception:
         return None

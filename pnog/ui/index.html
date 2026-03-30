@@ -94,6 +94,13 @@
 <header>
   <h1>PNOG</h1>
   <span>Pipeline Node Operation Graph — Live</span>
+  <select id="scope-select" style="margin-left:auto;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 10px;font-size:12px;">
+    <option value="">All (no scope)</option>
+    <option value="DEV">Developer</option>
+    <option value="SRE">SRE</option>
+    <option value="SECURITY">Security</option>
+    <option value="THIRD_PARTY">3rd Party</option>
+  </select>
   <button class="refresh-btn" onclick="loadGraph()">↻ Refresh</button>
 </header>
 
@@ -138,11 +145,13 @@ async function gql(query) {
 }
 
 async function loadGraph() {
+  const scope = document.getElementById("scope-select").value;
+  const scopeArg = scope ? `(scope: "${scope}")` : "";
   const data = await gql(`{
-    nodes { id layer layerName eventType severity weight eventCount }
-    edges { source target weight }
+    nodes${scopeArg} { id layer layerName eventType severity weight eventCount nodeType }
+    edges${scopeArg} { source target weight edgeType isLegal }
     stats { nodes edges timeline }
-    anomalies { id layer layerName weight severity eventCount }
+    anomalies { id layer layerName weight severity eventCount nodeType }
   }`);
 
   if (data.errors) { console.error(data.errors); return; }
@@ -158,7 +167,7 @@ async function loadGraph() {
   const visNodes = nodes.map(n => ({
     id:    n.id,
     label: n.id.split(":").slice(-1)[0],
-    title: `${n.id}\nLayer: ${n.layerName}\nWeight: ${n.weight}\nEvents: ${n.eventCount}`,
+    title: `${n.id}\nType: ${n.nodeType}\nLayer: ${n.layerName}\nWeight: ${n.weight}\nEvents: ${n.eventCount}`,
     color: {
       background: n.weight > 5 ? "#dc2626" : (LAYER_COLORS[n.layer] || "#475569"),
       border:     n.severity === "ERROR" ? "#fca5a5" : "#1e293b",
@@ -172,9 +181,11 @@ async function loadGraph() {
     from:   e.source,
     to:     e.target,
     value:  e.weight,
-    color:  { color: "#334155", opacity: 0.6 },
+    title:  `${e.edgeType}${e.isLegal ? '' : ' (INVALID)'}\nW=${e.weight}`,
+    color:  { color: e.isLegal ? "#334155" : "#dc2626", opacity: 0.6 },
     arrows: "to",
     width:  Math.min(e.weight * 0.5, 3),
+    dashes: !e.isLegal,
   }));
 
   nodesDS.clear(); nodesDS.add(visNodes);
@@ -188,7 +199,7 @@ async function loadGraph() {
     list.innerHTML = `<p style="color:#475569;font-size:12px">No anomalies detected</p>`;
   } else {
     list.innerHTML = anomalies.map(a => `
-      <div class="anomaly-card" onclick="runRCA('${a.id}')">
+      <div class="anomaly-card" onclick="runRCA('${a.id}')" title="NodeType: ${a.nodeType}">
         <div class="node-id">${a.id}</div>
         <div class="meta">
           <span>${a.layerName}</span>

@@ -13,6 +13,7 @@ def parse(data: dict) -> CanonicalEvent | None:
             severity   = "WARN" if not hit else "INFO",
             payload    = data,
             source     = "redis",
+            node_type  = "CACHE_OP",
         )
     except Exception:
         return None

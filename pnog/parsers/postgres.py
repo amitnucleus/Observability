@@ -16,6 +16,7 @@ def parse(data: dict) -> CanonicalEvent | None:
             severity   = severity,
             payload    = data,
             source     = "postgres",
+            node_type  = "DB_WRITER",
         )
     except Exception:
         return None

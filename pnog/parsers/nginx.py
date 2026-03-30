@@ -14,6 +14,7 @@ def parse(data: dict) -> CanonicalEvent | None:
             severity   = "ERROR" if status >= 500 else "WARN" if status >= 400 else "INFO",
             payload    = data,
             source     = "nginx",
+            node_type  = "NETWORK_REQUEST",
         )
     except Exception:
         return None

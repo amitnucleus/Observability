@@ -5,7 +5,7 @@ def parse(data: dict) -> CanonicalEvent | None:
     try:
         metric   = data.get("metric", "unknown")
         value    = float(data.get("value", 0))
-        severity = "WARN" if value > 80 else "ERROR" if value > 95 else "INFO"
+        severity = "ERROR" if value > 95 else "WARN" if value > 80 else "INFO"
         return CanonicalEvent(
             layer      = 7,
             layer_name = "resources",
@@ -15,6 +15,7 @@ def parse(data: dict) -> CanonicalEvent | None:
             severity   = severity,
             payload    = data,
             source     = "prometheus",
+            node_type  = "RESOURCE_METRIC",
         )
     except Exception:
         return None

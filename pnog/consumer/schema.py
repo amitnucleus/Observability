@@ -11,3 +11,4 @@ class CanonicalEvent(BaseModel):
     severity:   str = "INFO"      # INFO | WARN | ERROR
     payload:    dict[str, Any]    # raw event data
     source:     str = ""          # which service produced this
+    node_type:  str = "UNKNOWN"   # Abstract Graph NodeType (e.g. NETWORK_REQUEST, DB_WRITER)
