@@ -1,0 +1,12 @@
+node_modules/
+.next/
+
+# Python
+__pycache__/
+*.pyc
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
